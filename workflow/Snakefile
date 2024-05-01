@@ -1,0 +1,107 @@
+
+datasets, basenames ,= glob_wildcards("datasets/jgi/{dataset}/{basename}.fna")
+pdb_ref = "8H86"
+
+rule all:
+    input:
+        expand("analysis/tblastn/{dataset}/{basename}.txt", zip, dataset = datasets, basename = basenames)
+
+rule dload_pdb:
+    output:
+        "analysis/pdb/{acc}.pdb"
+    shell:
+        "wget -O {output} https://files.rcsb.org/download/{wildcards.acc}.pdb"
+
+rule dssp:
+    input:
+        "analysis/pdb/{acc}.pdb"
+    output:
+        "analysis/pdb/{acc}.dssp"
+    conda:
+        "envs/dssp.yaml"
+    shell:
+        "mkdssp {input} > {output}"
+
+rule align_refs:
+    input:
+        "metadata/BCCRs.faa"
+    output:
+        "analysis/proteins/BCCRs.mafft"
+    conda:
+        "envs/mafft.yaml"
+    threads:
+        20
+    shell:
+        "mafft --thread {threads} --reorder --auto {input} > {output}"
+
+rule trim_tms:
+    input:
+        dssp = "analysis/pdb/{acc}.dssp".format(acc = pdb_ref),
+        aln = "analysis/proteins/BCCRs.mafft"
+    output:
+        "analysis/proteins/BCCRs_TM.faa"
+    conda:
+        "envs/biopython.yaml"
+    script:
+        "scripts/trim_tms.py"
+
+rule makeblastdb_prot:
+    input:
+        "{prefix}.faa"
+    output:
+        "{prefix}.faa.pdb"
+    conda:
+        "envs/blast.yaml"
+    shell:
+        "makeblastdb -in {input} -dbtype prot"
+
+rule makeblastdb_nucl:
+    input:
+        "{prefix}.faa"
+    output:
+        "{prefix}.faa.ndb"
+    conda:
+        "envs/blast.yaml"
+    shell:
+        "makeblastdb -in {input} -dbtype nucl"
+
+rule blastx:
+    input:
+        query = "datasets/jgi/{dataset}/{basename}.fna",
+        db = "analysis/proteins/BCCRs_TM.faa",
+        pdb = "analysis/proteins/BCCRs_TM.faa.pdb"
+    output:
+        "analysis/blastx/{dataset}/{basename}.txt"
+    params:
+        evalue = 1e-5
+    conda:
+        "envs/blast.yaml"
+    threads:
+        4
+    shell:
+        "blastx -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads}"
+
+rule blastx_extract:
+    input:
+        query = "datasets/jgi/{dataset}/{basename}.fna",
+        blastx = "analysis/blastx/{dataset}/{basename}.txt"
+    output:
+        "analysis/blastx/{dataset}/{basename}.fna"
+    conda:
+        "envs/kits.yaml"
+    shell:
+        "cut -f1 {input.blastx} | seqkit grep -f- -o {output} {input.query}"
+
+rule tblastn:
+    input:
+        db = "analysis/blastx/{dataset}/{basename}.fna",
+        ndb = "analysis/blastx/{dataset}/{basename}.fna.ndb"
+        query = "analysis/proteins/BCCRs_TM.faa"
+    output:
+        "analysis/tblastn/{dataset}/{basename}.txt"
+    params:
+        evalue = 1e-5
+    conda:
+        "envs/blast.yaml"
+    shell:
+        "tblastn -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads}"
