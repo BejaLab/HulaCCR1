@@ -1,10 +1,24 @@
 
-datasets, basenames ,= glob_wildcards("datasets/jgi/{dataset}/{basename}.fna")
+from pandas import read_excel
+import warnings
+
+# all datasets as { dataset: basename } dict
+datasets = dict(zip(*glob_wildcards("datasets/{dataset}/{basename}.fna")))
+
+# dataset metadata
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    metadata = read_excel("metadata/datasets.xlsx").set_index('analysis').T.to_dict('dict')
+
+# dict of metatranscriptomic datasets
+metat_datasets = { ds: datasets[ds] for ds in datasets.keys() if metadata[ds]['type'] == 'Metatranscriptome' }
+
+# reference PDB accession of HcKCR1 for alignment trimming
 pdb_ref = "8H86"
 
 rule all:
     input:
-        expand("analysis/tblastn/{dataset}/{basename}.txt", zip, dataset = datasets, basename = basenames)
+        "output/clade_dist.csv"
 
 rule dload_pdb:
     output:
@@ -55,19 +69,9 @@ rule makeblastdb_prot:
     shell:
         "makeblastdb -in {input} -dbtype prot"
 
-rule makeblastdb_nucl:
-    input:
-        "{prefix}.faa"
-    output:
-        "{prefix}.faa.ndb"
-    conda:
-        "envs/blast.yaml"
-    shell:
-        "makeblastdb -in {input} -dbtype nucl"
-
 rule blastx:
     input:
-        query = "datasets/jgi/{dataset}/{basename}.fna",
+        query = "datasets/{dataset}/{basename}.fna",
         db = "analysis/proteins/BCCRs_TM.faa",
         pdb = "analysis/proteins/BCCRs_TM.faa.pdb"
     output:
@@ -77,31 +81,57 @@ rule blastx:
     conda:
         "envs/blast.yaml"
     threads:
-        4
+        8
     shell:
-        "blastx -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads}"
+        "blastx -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads} -ungapped -comp_based_stats F"
 
-rule blastx_extract:
+rule blastx_filter:
     input:
-        query = "datasets/jgi/{dataset}/{basename}.fna",
-        blastx = "analysis/blastx/{dataset}/{basename}.txt"
+        "analysis/blastx/{dataset}/{basename}.txt"
     output:
-        "analysis/blastx/{dataset}/{basename}.fna"
+        "analysis/blastx/{dataset}/{basename}_filtered.tsv"
+    params:
+        min_len = 25,
+        min_ident = 70,
+        regex = "mgCCR1"
     conda:
         "envs/kits.yaml"
     shell:
-        "cut -f1 {input.blastx} | seqkit grep -f- -o {output} {input.query}"
+        "awk '!_[$1] && $2 ~ /{params.regex}/ && $3>={params.min_ident} && $4>={params.min_len}; {{_[$1]=1}}' {input} > {output}"
 
-rule tblastn:
+rule clade_dist:
     input:
-        db = "analysis/blastx/{dataset}/{basename}.fna",
-        ndb = "analysis/blastx/{dataset}/{basename}.fna.ndb"
-        query = "analysis/proteins/BCCRs_TM.faa"
+        expand("analysis/blastx/{dataset}/{basename}_filtered.tsv", zip, dataset = datasets.keys(), basename = datasets.values())
     output:
-        "analysis/tblastn/{dataset}/{basename}.txt"
+        "output/clade_dist.csv"
     params:
-        evalue = 1e-5
+        datasets = datasets
     conda:
-        "envs/blast.yaml"
+        "envs/r.yaml"
+    script:
+        "scripts/clade_dist.R"
+
+rule hmmsearch:
+    input:
+        fasta = "datasets/{dataset}/{basename}.fna",
+        hmm = "profiles/{profile}.hmm"
+    output:
+        txt = "analysis/hmmsearch/{profile}/{dataset}/{basename}.txt",
+        tblout = "analysis/hmmsearch/{profile}/{dataset}/{basename}.tblout"
+    params:
+        minsize = 300 # min ORF size
+    conda:
+        "envs/hmmer.yaml"
     shell:
-        "tblastn -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads}"
+        "getorf -minsize {params.minsize} -filter -find 0 {input.fasta} | hmmsearch --cut_tc -o {output.txt} --tblout {output.tblout} {input.hmm} -"
+
+rule hmmsearch_extract:
+    input:
+        fasta = "datasets/{dataset}/{basename}.fna",
+        tblout = "analysis/hmmsearch/{profile}/{dataset}/{basename}.tblout"
+    output:
+        "analysis/hmmsearch/{profile}/{dataset}/{basename}.fna"
+    conda:
+        "envs/kits.yaml"
+    shell:
+        "cut -f1 -d' ' {input.tblout} | grep -v '^#' | sed -E 's/_[0-9]+$//' | seqkit grep -f- -o {output} {input.fasta}"
