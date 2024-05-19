@@ -4,7 +4,6 @@ library(tidyr)
 tsv_files <- unlist(snakemake@input)
 datasets <- unlist(snakemake@params["datasets"])
 output_file <- unlist(snakemake@output)
-
 col_names <- c("qseqid", "sseqid", "pident", "length", "mismatch", "gapopen", "qstart", "qend", "sstart", "send", "evalue", "bitscore")
 data <- lapply(tsv_files, read.table, col.names = col_names) %>%
     setNames(datasets) %>%

@@ -1,4 +1,5 @@
 channels:
  - conda-forge
+ - bioconda
 dependencies:
- - mafft=7.526
+ - iqtree=2.3.3

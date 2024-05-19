@@ -44,5 +44,5 @@ for aln_pos, res in enumerate(ref_seq):
 
 with open(output_file, 'w') as file:
     for record in records:
-        record.seq = record.seq[aln_start:aln_end+1].replace('-', '')
+        record.seq = record.seq[aln_start:aln_end+1] # .replace('-', '')
         SeqIO.write(record, file, 'fasta')
