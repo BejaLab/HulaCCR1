@@ -3,6 +3,8 @@ from Bio import SeqIO
 aln_file = snakemake.input['aln']
 dssp_file = snakemake.input['dssp']
 output_file = str(snakemake.output)
+params = dict(snakemake.params)
+min_len = params['min_len'] if 'min_len' in params else 0
 
 helices = [ 'G', 'H', 'I' ]
 dssp_seq = ''
@@ -44,5 +46,7 @@ for aln_pos, res in enumerate(ref_seq):
 
 with open(output_file, 'w') as file:
     for record in records:
-        record.seq = record.seq[aln_start:aln_end+1] # .replace('-', '')
-        SeqIO.write(record, file, 'fasta')
+        record.seq = record.seq[aln_start:aln_end+1]
+        ungapped = record.seq.replace('-', '')
+        if len(ungapped) >= min_len:
+            SeqIO.write(record, file, 'fasta')

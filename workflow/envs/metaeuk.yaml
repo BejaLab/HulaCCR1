@@ -1,5 +1,0 @@
-channels:
- - conda-forge
- - bioconda
-dependencies:
- - metaeuk=6.a5d39d9

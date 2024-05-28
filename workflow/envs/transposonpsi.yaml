@@ -1,5 +1,4 @@
 channels:
- - conda-forge
  - bioconda
 dependencies:
- - iqtree=2.3.3
+ - transposonpsi=1.0.0

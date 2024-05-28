@@ -5,13 +5,13 @@ import warnings
 # all datasets as { dataset: basename } dict
 datasets = dict(zip(*glob_wildcards("datasets/{dataset}/{basename}.fna")))
 
+# all databases
+databases = dict(zip(*glob_wildcards("databases/{database}/{basename}.pdb")))
+
 # dataset metadata
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
     metadata = read_excel("metadata/datasets.xlsx").set_index('analysis').T.to_dict('dict')
-
-# dict of metatranscriptomic datasets
-metat_datasets = { ds: datasets[ds] for ds in datasets.keys() if metadata[ds]['type'] == 'Metatranscriptome' }
 
 # reference PDB accession of HcKCR1 for alignment trimming
 pdb_ref = "8H86"
@@ -19,286 +19,32 @@ pdb_ref = "8H86"
 wildcard_constraints:
     dataset = "|".join(datasets)
 
+include: "Blastx.snakefile"
+include: "Phylogeny.snakefile"
+include: "Markers.snakefile"
+include: "Flanks.snakefile"
+
 rule all:
     input:
-        "output/clade_dist.csv"
+        expand("analysis/blastx/{dataset}/{basename}_ingroup.fna", zip, dataset = datasets, basename = datasets.values()),
+        "output/clade_dist.csv",
+        "output/pplacer.newick",
+        "output/sintax.svg"
 
-rule dload_pdb:
+rule link_dataset:
+    input:
+        "datasets/{dataset}/{basename}.fna"
     output:
-        "analysis/pdb/{acc}.pdb"
+        "analysis/datasets/{dataset}_{basename}.fna"
     shell:
-        "wget -O {output} https://files.rcsb.org/download/{wildcards.acc}.pdb"
+        "ln -sr {input} {output}"
 
-rule dssp:
+rule faidx:
     input:
-        "analysis/pdb/{acc}.pdb"
+        "analysis/datasets/{dataset}_{basename}.fna"
     output:
-        "analysis/pdb/{acc}.dssp"
-    conda:
-        "envs/dssp.yaml"
-    shell:
-        "mkdssp {input} > {output}"
-
-rule align_refs:
-    input:
-        "metadata/BCCRs.faa"
-    output:
-        "analysis/proteins/BCCRs.mafft"
-    conda:
-        "envs/mafft.yaml"
-    threads:
-        20
-    shell:
-        "mafft --thread {threads} --reorder --auto {input} > {output}"
-
-rule trim_tms:
-    input:
-        dssp = "analysis/pdb/{acc}.dssp".format(acc = pdb_ref),
-        aln = "analysis/proteins/BCCRs.mafft"
-    output:
-        "analysis/proteins/BCCRs_TM.trim"
-    conda:
-        "envs/biopython.yaml"
-    script:
-        "scripts/trim_tms.py"
-
-rule trim_tms_strip_gaps:
-    input:
-        "analysis/proteins/BCCRs_TM.trim"
-    output:
-        "analysis/proteins/BCCRs_TM.faa"
+        "analysis/datasets/{dataset}_{basename}.fna.fai"
     conda:
         "envs/kits.yaml"
     shell:
-        "seqkit seq -g -o {output} {input}"
-
-rule makeblastdb_prot:
-    input:
-        "{prefix}.faa"
-    output:
-        "{prefix}.faa.pdb"
-    conda:
-        "envs/blast.yaml"
-    shell:
-        "makeblastdb -in {input} -dbtype prot"
-
-rule blastx:
-    input:
-        query = "datasets/{dataset}/{basename}.fna",
-        db = "analysis/proteins/BCCRs_TM.faa",
-        pdb = "analysis/proteins/BCCRs_TM.faa.pdb"
-    output:
-        "analysis/blastx/{dataset}/{basename}.txt"
-    params:
-        evalue = 1e-5
-    conda:
-        "envs/blast.yaml"
-    threads:
-        8
-    shell:
-        "blastx -query {input.query} -db {input.db} -outfmt 6 -out {output} -evalue {params.evalue} -num_threads {threads} -ungapped -comp_based_stats F"
-
-rule filter_blastx:
-    input:
-        fna = "datasets/{dataset}/{basename}.fna",
-        tsv = "analysis/blastx/{dataset}/{basename}.txt"
-    output:
-        fna = "analysis/blastx/{dataset}/{basename}_filtered.fna",
-        tsv = "analysis/blastx/{dataset}/{basename}_filtered.tsv"
-    params:
-        min_len = 25,
-        min_ident = 65
-    conda:
-        "envs/biopython.yaml"
-    script:
-        "scripts/filter_blastx.py"
-
-rule filter_blastx_ingroup:
-    input:
-        "analysis/blastx/{dataset}/{basename}_filtered.fna"
-    output:
-        "analysis/blastx/{dataset}/{basename}_ingroup.fna"
-    params:
-        ingroup = "mgCCR1"
-    conda:
-        "envs/kits.yaml"
-    shell:
-        "seqkit grep -rnp {params.ingroup} {input} | seqkit replace -p ^ -r '{wildcards.dataset}|' -o {output}"
-
-rule metauk_predict:
-    input:
-        ref = "metadata/selected_ingroup.faa",
-        query = "analysis/blastx/{dataset}/{basename}_ingroup.fna"
-    output:
-        fas = "analysis/blastx/{dataset}/{basename}_ingroup.codon.fas",
-        gff = "analysis/blastx/{dataset}/{basename}_ingroup.gff"
-    log:
-        "analysis/blastx/{dataset}/{basename}_ingroup.log"
-    params:
-        prefix = "analysis/blastx/{dataset}/{basename}_ingroup"
-    conda:
-        "envs/metaeuk.yaml"
-    shell:
-        "metaeuk easy-predict {input.query} {input.ref} {params.prefix} tmp/ &> {log}"
-
-rule translate:
-    input:
-        "analysis/blastx/{dataset}/{basename}_ingroup.codon.fas"
-    output:
-        "analysis/blastx/{dataset}/{basename}_ingroup.faa"
-    conda:
-        "envs/kits.yaml"
-    shell:
-        "seqkit translate -o {output} {input}"
-
-rule collect_metaeuk:
-    input:
-        expand("analysis/blastx/{dataset}/{basename}_ingroup.faa", zip, dataset = datasets, basename = datasets.values())
-    output:
-        "analysis/phylogeny/metaeuk.fasta"
-    shell:
-        "cat {input} > {output}"
-
-rule add_to_alignment:
-    input:
-        ref = "analysis/phylogeny/sequences.trim",
-        query = "analysis/phylogeny/metaeuk.fasta"
-    output:
-        "analysis/phylogeny/pplacer_input.fasta"
-    conda:
-        "envs/mafft.yaml"
-    threads:
-        20
-    shell:
-        "mafft --auto --addfragments {input.query} --keeplength --thread {threads} --reorder --auto {input.ref} > {output}"
-
-rule taxit:
-    input:
-        tree = "analysis/phylogeny/RAxML_bipartitions.txt",
-        info = "analysis/phylogeny/RAxML_info.txt",
-        aln = "analysis/phylogeny/sequences.trim"
-    output:
-        directory("analysis/phylogeny/RAxML.refpkg")
-    conda:
-        "envs/pplacer.yaml"
-    shell:
-        "taxit create -l locus_tag -P {output} --tree-file {input.tree} --aln-fasta {input.aln} --tree-stats {input.info}"
-
-rule pplacer:
-    input:
-        refpkg = "analysis/phylogeny/RAxML.refpkg",
-        fasta  = "analysis/phylogeny/pplacer_input.fasta"
-    output:
-        "analysis/phylogeny/pplacer.jplace"
-    conda:
-        "envs/pplacer.yaml"
-    shell:
-        "pplacer -o {output} -c {input.refpkg} {input.fasta}"
-
-rule clade_dist:
-    input:
-        expand("analysis/blastx/{dataset}/{basename}_filtered.tsv", zip, dataset = datasets, basename = datasets.values())
-    output:
-        "output/clade_dist.csv"
-    params:
-        datasets = datasets.keys()
-    conda:
-        "envs/r.yaml"
-    script:
-        "scripts/clade_dist.R"
-
-rule hmmsearch:
-    input:
-        fasta = "datasets/{dataset}/{basename}.fna",
-        hmm = "profiles/{profile}.hmm"
-    output:
-        txt = "analysis/hmmsearch/{profile}/{dataset}/{basename}.txt",
-        tblout = "analysis/hmmsearch/{profile}/{dataset}/{basename}.tblout"
-    params:
-        minsize = 300 # min ORF size
-    conda:
-        "envs/hmmer.yaml"
-    shell:
-        "getorf -minsize {params.minsize} -filter -find 0 {input.fasta} | hmmsearch --cut_tc -o {output.txt} --tblout {output.tblout} {input.hmm} -"
-
-rule hmmsearch_extract:
-    input:
-        fasta = "datasets/{dataset}/{basename}.fna",
-        tblout = "analysis/hmmsearch/{profile}/{dataset}/{basename}.tblout"
-    output:
-        "analysis/hmmsearch/{profile}/{dataset}/{basename}.fna"
-    conda:
-        "envs/kits.yaml"
-    shell:
-        "cut -f1 -d' ' {input.tblout} | grep -v '^#' | sed -E 's/_[0-9]+$//' | seqkit grep -f- -o {output} {input.fasta}"
-
-rule phylogeny_sequences:
-    input:
-        refs = "metadata/BCCRs.faa",
-        ingroup = "metadata/selected_ingroup.faa"
-    output:
-        "analysis/phylogeny/sequences.faa"
-    params:
-        outgroup = 'StramhfCCR',
-        ingroup = 'mgCCR1'
-    conda:
-        "envs/kits.yaml"
-    shell:
-        "seqkit grep -nrp {params.outgroup} {input.refs} | seqkit grep -nvrp {params.ingroup} | seqkit seq - {input.ingroup} > {output}"
-
-rule phylogeny_align:
-    input:
-        "analysis/phylogeny/sequences.faa"
-    output:
-        "analysis/phylogeny/sequences.mafft"
-    conda:
-        "envs/mafft.yaml"
-    threads:
-        20
-    shell:
-        "mafft --thread {threads} --reorder --auto {input} > {output}"
-
-rule phylogeny_tms:
-    input:
-        dssp = "analysis/pdb/{acc}.dssp".format(acc = pdb_ref),
-        aln = "analysis/phylogeny/sequences.mafft"
-    output:
-        "analysis/phylogeny/sequences.trim"
-    conda:
-        "envs/biopython.yaml"
-    script:
-        "scripts/trim_tms.py"
-
-# not used
-rule phylogeny_iqtree:
-    input:
-        "analysis/phylogeny/selected.trim"
-    output:
-        "analysis/phylogeny/selected.treefile"
-    params:
-        seed = 123,
-        b = 100,
-        prefix = "analysis/phylogeny/sequences"
-    threads:
-        4
-    conda:
-        "envs/iqtree.yaml"
-    shell:
-        "iqtree2 -s {input} --prefix {params.prefix} -redo --alrt 1000 -b {params.b} --seed {params.seed} -T {threads}"
-
-rule phylogeny_raxml:
-    input:
-        "analysis/phylogeny/sequences.trim"
-    output:
-        "analysis/phylogeny/RAxML_info.txt",
-        "analysis/phylogeny/RAxML_bipartitions.txt"
-    params:
-        model = "PROTCATLG",
-        seed = 123,
-        bootstrap = 1000
-    conda:
-        "envs/raxml.yaml"
-    threads:
-        20
-    shell:
-        "raxmlHPC-PTHREADS-SSE3 -f a -p {params.seed} -x {params.seed} -# {params.bootstrap} -m {params.model} -T {threads} -s {input} -n txt -w $(dirname $(realpath {output}))"
+        "seqkit faidx {input}"

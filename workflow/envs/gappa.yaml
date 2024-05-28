@@ -2,5 +2,4 @@ channels:
  - conda-forge
  - bioconda
 dependencies:
- - proteinortho=6.3.1
- - blast=2.15.0
+ - gappa=0.8.0

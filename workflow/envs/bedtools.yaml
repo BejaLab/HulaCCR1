@@ -2,4 +2,4 @@ channels:
  - conda-forge
  - bioconda
 dependencies:
- - emboss=6.6.0
+ - bedtools=2.27.1
