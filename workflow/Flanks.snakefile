@@ -1,7 +1,8 @@
 
 rule all_flanks:
     input:
-        expand("analysis/flanks/refs/{database}.faa", database = databases)
+        "output/transposons_pplacer.newick",
+        "output/transposons_subclades.csv"
 
 rule select_flanks:
     input:
@@ -9,7 +10,7 @@ rule select_flanks:
     output:
         "analysis/flanks/flanks.fna"
     params:
-        min_len = 200
+        min_len = 150
     conda:
         "envs/kits.yaml"
     shell:
@@ -61,7 +62,7 @@ rule flanks_blastn_filter:
     shell:
         "awk -ve={params.evalue} '$11<=e' {input} > {output}"
 
-rule flanks_blasnt_extract:
+rule flanks_blastn_extract:
     input:
         fna = "datasets/{dataset}/{basename}.fna",
         tsv = "analysis/flanks/blastn/{dataset}_{basename}_filtered.tsv"
@@ -138,7 +139,7 @@ rule blastp_ref_databases_filter:
     output:
         "analysis/flanks/databases/{dataset}_{basename}_{database}_filtered.tsv"
     params:
-        score = 230
+        score = 250
     conda:
         "envs/kits.yaml"
     shell:
@@ -155,7 +156,7 @@ rule blastp_ref_databases_extract:
     conda:
         "envs/blast.yaml"
     shell:
-        "cut -f2 {input.tsv} | blastdbcmd -db {params.db} -entry_batch - | sed 's/>/>{wildcards.database}|/' > {output}"
+        "cut -f2 {input.tsv} | sort -u | blastdbcmd -db {params.db} -entry_batch - | sed 's/>/>{wildcards.database}|/' > {output}"
 
 rule blastp_ref_databases_cat:
     input:
@@ -192,25 +193,14 @@ rule datasets_pol_cdhit:
     input:
         "analysis/flanks/datasets.faa"
     output:
-        "analysis/flanks/datasets.cdhit"
+        fasta = "analysis/flanks/datasets.cdhit",
+        clstr = "analysis/flanks/datasets.cdhit.clstr"
     params:
         c = 0.95
     conda:
         "envs/cd-hit.yaml"
     shell:
-        "cd-hit -i {input} -o {output} -c {params.c} -d 0"
-
-rule datasets_pol_short:
-    input:
-        "analysis/flanks/datasets.cdhit"
-    output:
-        "analysis/flanks/datasets.cdhit.short"
-    params:
-        m = 299
-    conda:
-        "envs/kits.yaml"
-    shell:
-        "seqkit seq -gM {params.m} -o {output} {input}"
+        "cd-hit -i {input} -o {output.fasta} -c {params.c} -d 0"
 
 rule transposons_cat:
     input:
@@ -262,7 +252,10 @@ rule transposons_raxml:
         "analysis/flanks/transposons.long"
     output:
         "analysis/flanks/RAxML_info.txt",
-        "analysis/flanks/RAxML_bipartitions.txt"
+        "analysis/flanks/RAxML_bipartitions.txt",
+        "analysis/flanks/RAxML_bestTree.txt",
+        "analysis/flanks/RAxML_bipartitionsBranchLabels.txt",
+        "analysis/flanks/RAxML_bootstrap.txt"
     params:
         model = "PROTCATLG",
         seed = 123,
@@ -274,3 +267,56 @@ rule transposons_raxml:
     shell:
         "raxmlHPC-PTHREADS-SSE3 -f a -p {params.seed} -x {params.seed} -# {params.bootstrap} -m {params.model} -T {threads} -s {input} -n txt -w $(dirname $(realpath {output}))"
 
+rule transposons_taxit:
+    input:
+        tree = "analysis/flanks/RAxML_bipartitions.txt",
+        info = "analysis/flanks/RAxML_info.txt",
+        aln = "analysis/flanks/transposons.long"
+    output:
+        directory("analysis/flanks/RAxML.refpkg")
+    conda:
+        "envs/pplacer.yaml"
+    shell:
+        "taxit create -l locus_tag -P {output} --tree-file {input.tree} --aln-fasta {input.aln} --tree-stats {input.info}"
+
+rule transposons_pplacer_input:
+    input:
+        "analysis/flanks/transposons.trimal"
+    output:
+        "analysis/flanks/transposons.trimal.fasta"
+    conda:
+        "envs/kits.yaml"
+    shell:
+        "seqkit replace -p '[:()]' -r _ -o {output} {input}"
+
+rule transposons_pplacer:
+    input:
+        refpkg = "analysis/flanks/RAxML.refpkg",
+        fasta  = "analysis/flanks/transposons.trimal.fasta"
+    output:
+        "analysis/flanks/transposons_pplacer.jplace"
+    conda:
+        "envs/pplacer.yaml"
+    shell:
+        "pplacer -o {output} -c {input.refpkg} {input.fasta}"
+
+rule transposons_gappa:
+    input:
+        "analysis/flanks/transposons_pplacer.jplace"
+    output:
+        "output/transposons_pplacer.newick"
+    conda:
+        "envs/gappa.yaml"
+    shell:
+        "gappa examine graft --jplace-path {input} --fully-resolve --out-dir $(dirname {output})"
+
+rule transposons_subclades:
+    input:
+        tsv = expand("analysis/flanks/blastn/{dataset}_{basename}_filtered.tsv", zip, dataset = datasets, basename = datasets.values()),
+        clstr = "analysis/flanks/datasets.cdhit.clstr"
+    output:
+        "output/transposons_subclades.csv"
+    conda:
+        "envs/r.yaml"
+    script:
+        "scripts/transposons_subclades.R"

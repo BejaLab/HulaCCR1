@@ -29,7 +29,9 @@ rule all:
         expand("analysis/blastx/{dataset}/{basename}_ingroup.fna", zip, dataset = datasets, basename = datasets.values()),
         "output/clade_dist.csv",
         "output/pplacer.newick",
-        "output/sintax.svg"
+        "output/sintax.svg",
+        "output/transposons_pplacer.newick",
+        "output/transposons_subclades.csv"
 
 rule link_dataset:
     input:
