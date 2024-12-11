@@ -1,4 +1,4 @@
-
+import shutil
 from pandas import read_excel
 import warnings
 
@@ -26,12 +26,24 @@ include: "Flanks.snakefile"
 
 rule all:
     input:
-        expand("analysis/blastx/{dataset}/{basename}_ingroup.fna", zip, dataset = datasets, basename = datasets.values()),
-        "output/clade_dist.csv",
-        "output/pplacer.newick",
-        "output/sintax.svg",
-        "output/transposons_pplacer.newick",
-        "output/transposons_subclades.csv"
+        rhodopsin_phylogeny = "analysis/phylogeny/pplacer.newick",
+        clade_distrbution = "analysis/clade_distrbution.csv",
+        transposon_phylogeny = "analysis/flanks/transposons_pplacer.newick",
+        transposon_subclades = "analysis/flanks/transposons_subclades.csv",
+        cryptist_phylogeny = "analysis/markers/ssu_phylogeny/RAxML_bipartitions.txt",
+        sintax_tsv = "analysis/markers/rna/ssu/all_sintax.tsv",
+        sintax_svg = "analysis/markers/rna/ssu/sintax.svg"
+    output:
+        rhodopsin_phylogeny = "output/Figure_2b_rhodopsin_phylogeny.newick",
+        clade_distrbution = "output/Figure_2c_clade_distrbution.csv",
+        transposon_phylogeny = "output/Figure_S1a_transposon_phylogeny.newick",
+        transposon_subclades = "output/Figure_S1a_transposon_subclades.csv",
+        cryptist_phylogeny = "output/Figure_S1b_cryptist_phylogeny.newick",
+        sintax_tsv = "output/Figure_S2_sintax.tsv",
+        sintax_svg = "output/Figure_S2_sintax.svg"
+    run:
+        for key in input.keys():
+            shutil.copy(input[key], output[key])
 
 rule link_dataset:
     input:

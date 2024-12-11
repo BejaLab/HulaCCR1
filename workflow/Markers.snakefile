@@ -142,9 +142,9 @@ rule collect_sintax:
     input:
         tsv = expand("analysis/markers/rna/ssu/{dataset}_{basename}.sintax.tsv", zip, dataset = datasets, basename = datasets.values()),
         datasets = "metadata/datasets.xlsx",
-        clades = "output/clade_dist.csv"
+        clades = "analysis/clade_distrbution.csv"
     output:
-        "output/sintax.svg"
+        "analysis/markers/rna/ssu/sintax.svg"
     params:
         min_datasets = 25,
         min_rnas = 75,
@@ -157,3 +157,11 @@ rule collect_sintax:
         "envs/ggplot.yaml"
     script:
         "scripts/collect_sintax.R"
+
+rule concat_sintax:
+    input:
+        expand("analysis/markers/rna/ssu/{dataset}_{basename}.sintax.tsv", zip, dataset = datasets, basename = datasets.values())
+    output:
+        "analysis/markers/rna/ssu/all_sintax.tsv"
+    shell:
+        "cat {input} > {output}"

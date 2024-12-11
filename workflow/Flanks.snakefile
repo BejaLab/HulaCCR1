@@ -304,7 +304,7 @@ rule transposons_gappa:
     input:
         "analysis/flanks/transposons_pplacer.jplace"
     output:
-        "output/transposons_pplacer.newick"
+        "analysis/flanks/transposons_pplacer.newick"
     conda:
         "envs/gappa.yaml"
     shell:
@@ -315,7 +315,7 @@ rule transposons_subclades:
         tsv = expand("analysis/flanks/blastn/{dataset}_{basename}_filtered.tsv", zip, dataset = datasets, basename = datasets.values()),
         clstr = "analysis/flanks/datasets.cdhit.clstr"
     output:
-        "output/transposons_subclades.csv"
+        "analysis/flanks/transposons_subclades.csv"
     conda:
         "envs/r.yaml"
     script:

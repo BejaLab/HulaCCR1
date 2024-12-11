@@ -39,14 +39,14 @@ rule trim_pplace_input:
 rule taxit:
     input:
         tree = "analysis/phylogeny/RAxML_bipartitions.txt",
-        info = "analysis/phylogeny/RAxML_info.txt",
+        logfile = "analysis/phylogeny/RAxML.log",
         aln = "analysis/phylogeny/sequences.trim"
     output:
         directory("analysis/phylogeny/RAxML.refpkg")
     conda:
         "envs/pplacer.yaml"
     shell:
-        "taxit create -l locus_tag -P {output} --tree-file {input.tree} --aln-fasta {input.aln} --tree-stats {input.info}"
+        "taxit create -l locus_tag -P {output} --tree-file {input.tree} --aln-fasta {input.aln} --tree-stats {input.logfile} --stats-type RAxML"
 
 rule pplacer:
     input:
@@ -63,7 +63,7 @@ rule gappa:
     input:
         "analysis/phylogeny/pplacer.jplace"
     output:
-        "output/pplacer.newick"
+        "analysis/phylogeny/pplacer.newick"
     conda:
         "envs/gappa.yaml"
     shell:
@@ -73,7 +73,7 @@ rule clade_dist:
     input:
         expand("analysis/blastx/{dataset}/{basename}_filtered.tsv", zip, dataset = datasets, basename = datasets.values())
     output:
-        "output/clade_dist.csv"
+        "analysis/clade_distrbution.csv"
     params:
         datasets = datasets.keys()
     conda:
